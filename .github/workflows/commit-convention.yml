@@ -18,12 +18,19 @@ jobs:
     if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
 
     steps:
+      - name: Checkout (push only)
+        if: ${{ github.event_name == 'push' }}
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - name: Validate Conventional Commits
         uses: actions/github-script@v7
         with:
           script: |
             const owner = context.repo.owner;
             const repo = context.repo.repo;
+            const { execSync } = require('node:child_process');
 
             const allowedTypes = [
               'feat',
@@ -41,38 +48,78 @@ jobs:
 
             const headerMaxLength = 100;
             const typesAlternation = allowedTypes.join('|');
-            const headerRe = new RegExp(
-              `^(${typesAlternation})(\\([^)]+\\))?(!)?:\\s.+$`
-            );
+            const headerRe = new RegExp(`^(${typesAlternation})(\\([^)]+\\))?(!)?:\\s.+$`);
+
+            let errors = [];
 
             function validateHeader({ header, what }) {
-              const errors = [];
+              const out = [];
 
               if (!header || typeof header !== 'string') {
-                errors.push(`${what}: empty commit header`);
-                return errors;
+                out.push(`${what}: empty commit header`);
+                return out;
               }
 
               if (header.length > headerMaxLength) {
-                errors.push(
+                out.push(
                   `${what}: header too long (${header.length} > ${headerMaxLength}): "${header}"`
                 );
               }
 
               if (header.endsWith('.')) {
-                errors.push(`${what}: subject must not end with a period: "${header}"`);
+                out.push(`${what}: subject must not end with a period: "${header}"`);
               }
 
               if (!headerRe.test(header)) {
-                errors.push(
-                  `${what}: does not follow Conventional Commits: "${header}"`
-                );
+                out.push(`${what}: does not follow Conventional Commits: "${header}"`);
               }
 
-              return errors;
+              return out;
             }
 
-            let errors = [];
+            function sh(cmd) {
+              return execSync(cmd, {
+                encoding: 'utf8',
+                stdio: ['ignore', 'pipe', 'pipe'],
+              }).trimEnd();
+            }
+
+            function isAllZerosSha(sha) {
+              return typeof sha === 'string' && /^0{40}$/.test(sha);
+            }
+
+            function hasCommit(sha) {
+              try {
+                sh(`git cat-file -e ${sha}^{commit}`);
+                return true;
+              } catch (_) {
+                return false;
+              }
+            }
+
+            function listGitCommitHeaders(rangeExpr, whatForErrors) {
+              // Bugfix: `git log` can throw (e.g. missing SHAs). Catch and surface a clear message.
+              try {
+                // Format: "<full_sha><US><subject>"
+                // - subject is the first line only, so it's safe for our header validation
+                const out = sh(`git log --no-merges --format=%H%x1f%s ${rangeExpr}`);
+                if (!out) return [];
+                return out.split('\n').map((line) => {
+                  const [sha, header] = line.split('\x1f');
+                  return {
+                    sha: (sha || '').slice(0, 7) || 'unknown',
+                    header: (header || '').trim(),
+                  };
+                });
+              } catch (e) {
+                errors.push(
+                  `${whatForErrors}: failed to run git log for range "${rangeExpr}": ${String(
+                    e && e.message ? e.message : e
+                  )}`
+                );
+                return [];
+              }
+            }
 
             if (context.eventName === 'pull_request') {
               const pull_number = context.payload.pull_request.number;
@@ -94,29 +141,82 @@ jobs:
                 // Ignore merge commits created by GitHub or local merges
                 if (/^Merge\s/i.test(header)) continue;
 
-                const commitErrors = validateHeader({
-                  header,
-                  what: `Commit ${sha}`,
-                });
-                errors = errors.concat(commitErrors);
+                errors = errors.concat(
+                  validateHeader({
+                    header,
+                    what: `Commit ${sha}`,
+                  })
+                );
               }
             }
 
             if (context.eventName === 'push') {
-              const commits = Array.isArray(context.payload.commits) ? context.payload.commits : [];
-              for (const c of commits) {
-                const sha = (c.id || '').slice(0, 7) || 'unknown';
-                const msg = c.message || '';
-                const header = msg.split('\n')[0].trim();
+              // IMPORTANT:
+              // GitHub limits `context.payload.commits` to a small subset (typically first 20),
+              // so we must derive the full set from git history for consistent coverage.
+              const before = context.payload.before;
+              const after = context.payload.after;
 
-                // Ignore merge commits created by GitHub or local merges
-                if (/^Merge\s/i.test(header)) continue;
+              if (!after || typeof after !== 'string') {
+                errors.push('Push event: missing `after` SHA.');
+              } else if (isAllZerosSha(after) || context.payload.deleted) {
+                // Branch/tag deletion: nothing to validate.
+              } else {
+                let commitsToCheck = [];
 
-                const commitErrors = validateHeader({
-                  header,
-                  what: `Commit ${sha}`,
-                });
-                errors = errors.concat(commitErrors);
+                const canUseBeforeRange =
+                  before && !isAllZerosSha(before) && typeof before === 'string' && hasCommit(before);
+
+                if (canUseBeforeRange) {
+                  commitsToCheck = listGitCommitHeaders(
+                    `${before}..${after}`,
+                    'Push event'
+                  );
+                } else {
+                  // Branch creation / force-push / missing base: validate vs default branch to avoid scanning full history.
+                  const defaultBranch = context.payload.repository?.default_branch;
+                  if (defaultBranch) {
+                    let base = null;
+
+                    try {
+                      sh(`git fetch --no-tags --prune --depth=0 origin ${defaultBranch}`);
+                    } catch (e) {
+                      errors.push(
+                        `Push event: failed to fetch default branch "origin/${defaultBranch}": ${String(
+                          e && e.message ? e.message : e
+                        )}`
+                      );
+                    }
+
+                    try {
+                      base = sh(`git rev-parse origin/${defaultBranch}`);
+                    } catch (e) {
+                      errors.push(
+                        `Push event: failed to resolve "origin/${defaultBranch}" (rev-parse): ${String(
+                          e && e.message ? e.message : e
+                        )}`
+                      );
+                    }
+
+                    if (base) {
+                      commitsToCheck = listGitCommitHeaders(
+                        `${base}..${after}`,
+                        'Push event'
+                      );
+                    }
+                  } else {
+                    errors.push('Push event: unable to determine default branch for validation.');
+                  }
+                }
+
+                for (const c of commitsToCheck) {
+                  errors = errors.concat(
+                    validateHeader({
+                      header: c.header,
+                      what: `Commit ${c.sha}`,
+                    })
+                  );
+                }
               }
             }
 
