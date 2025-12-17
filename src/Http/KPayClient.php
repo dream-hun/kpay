@@ -2,16 +2,16 @@
 
 namespace KPay\LaravelKPay\Http;
 
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Factory as HttpFactory;
-use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Client\RequestException;
 use InvalidArgumentException;
 
-class KPayClient
+readonly class KPayClient
 {
     public function __construct(
-        private readonly HttpFactory $http,
-        private readonly array $config
+        private HttpFactory $http,
+        private array $config
     ) {
     }
 
@@ -23,7 +23,7 @@ class KPayClient
      * retailerid, returl, redirecturl
      *
      * @throws InvalidArgumentException
-     * @throws RequestException
+     * @throws RequestException|ConnectionException
      */
     public function pay(array $payload): array
     {
@@ -42,31 +42,19 @@ class KPayClient
         $payload['action'] = 'pay';
 
         $this->assertConfigured();
-        $this->assertRequired($payload, [
-            'msisdn',
-            'email',
-            'details',
-            'refid',
-            'amount',
-            'cname',
-            'cnumber',
-            'pmethod',
-            'retailerid',
-            'returl',
-            'redirecturl',
-        ]);
+        $this->assertRequired($payload);
 
-        // Remove nulls to avoid sending optional fields when not set.
         $payload = array_filter($payload, static fn ($v) => $v !== null);
 
         return $this->request($payload);
     }
 
     /**
-     * Check payment status (action=checkstatus) by refid.
+     * Check payment status (action check status) by refid.
      *
      * @throws InvalidArgumentException
      * @throws RequestException
+     * @throws ConnectionException
      */
     public function checkStatus(string $refid): array
     {
@@ -83,7 +71,7 @@ class KPayClient
     }
 
     /**
-     * @throws RequestException
+     * @throws RequestException|ConnectionException
      */
     private function request(array $payload): array
     {
@@ -93,7 +81,7 @@ class KPayClient
         return $response->json() ?? [];
     }
 
-    private function client(): PendingRequest
+    private function client(): HttpFactory
     {
         return $this->http
             ->baseUrl($this->baseUrl())
@@ -104,21 +92,21 @@ class KPayClient
 
     private function baseUrl(): string
     {
-        $baseUrl = (string)($this->config['base_url'] ?? 'https://pay.esicia.com/');
+        $baseUrl = (string) ($this->config['base_url'] ?? 'https://pay.esicia.com/');
 
         return rtrim($baseUrl, '/');
     }
 
     private function headers(): array
     {
-        $apiKey = (string)($this->config['api_key'] ?? '');
-        $username = (string)($this->config['username'] ?? '');
-        $password = (string)($this->config['password'] ?? '');
+        $apiKey = (string) ($this->config['api_key'] ?? '');
+        $username = (string) ($this->config['username'] ?? '');
+        $password = (string) ($this->config['password'] ?? '');
 
         return [
             'Content-Type' => 'application/json',
             'Kpay-Key' => $apiKey,
-            'Authorization' => 'Basic ' . base64_encode($username . ':' . $password),
+            'Authorization' => 'Basic '.base64_encode($username.':'.$password),
         ];
     }
 
@@ -127,15 +115,15 @@ class KPayClient
      */
     private function assertConfigured(): void
     {
-        if (trim((string)($this->config['api_key'] ?? '')) === '') {
+        if (trim((string) ($this->config['api_key'] ?? '')) === '') {
             throw new InvalidArgumentException('K-Pay api_key is not configured (kpay.api_key).');
         }
 
-        if (trim((string)($this->config['username'] ?? '')) === '') {
+        if (trim((string) ($this->config['username'] ?? '')) === '') {
             throw new InvalidArgumentException('K-Pay username is not configured (kpay.username).');
         }
 
-        if (trim((string)($this->config['password'] ?? '')) === '') {
+        if (trim((string) ($this->config['password'] ?? '')) === '') {
             throw new InvalidArgumentException('K-Pay password is not configured (kpay.password).');
         }
     }
@@ -143,11 +131,24 @@ class KPayClient
     /**
      * @throws InvalidArgumentException
      */
-    private function assertRequired(array $payload, array $requiredKeys): void
+    private function assertRequired(array $payload): void
     {
+        $requiredKeys = [
+            'msisdn',
+            'email',
+            'details',
+            'refid',
+            'amount',
+            'cname',
+            'cnumber',
+            'pmethod',
+            'retailerid',
+            'returl',
+            'redirecturl',
+        ];
         foreach ($requiredKeys as $key) {
-            if (!array_key_exists($key, $payload) || $payload[$key] === '' || $payload[$key] === null) {
-                throw new InvalidArgumentException("K-Pay payload missing required field: {$key}");
+            if (! array_key_exists($key, $payload) || $payload[$key] === '' || $payload[$key] === null) {
+                throw new InvalidArgumentException("K-Pay payload missing required field: $key");
             }
         }
     }

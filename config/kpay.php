@@ -36,7 +36,7 @@ return [
         'retailerid' => env('KPAY_RETAILER_ID', ''),
         'returl' => env('KPAY_RETURL', ''),
         'redirecturl' => env('KPAY_REDIRECTURL', ''),
-        'logourl' => env('KPAY_LOGOURL', null),
+        'logourl' => env('KPAY_LOGOURL'),
     ],
 
     /*
