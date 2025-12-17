@@ -4,7 +4,7 @@ use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use KPay\LaravelKPay\Facades\KPay;
 
-it('sends a pay request with required headers and defaults', function () {
+it('sends a pay request with required headers and defaults', function (): void {
     Http::fake([
         'https://pay.esicia.com/*' => Http::response([
             'reply' => 'PENDING',
@@ -13,7 +13,7 @@ it('sends a pay request with required headers and defaults', function () {
             'tid' => 'T123',
             'refid' => 'ORDER123',
             'retcode' => 0,
-        ], 200),
+        ]),
     ]);
 
     $response = KPay::pay([
@@ -35,7 +35,7 @@ it('sends a pay request with required headers and defaults', function () {
         return $request->method() === 'POST'
             && $request->url() === 'https://pay.esicia.com/'
             && $request->hasHeader('Kpay-Key', 'test-api-key')
-            && $request->hasHeader('Authorization', 'Basic ' . base64_encode('test-user:test-pass'))
+            && $request->hasHeader('Authorization', 'Basic '.base64_encode('test-user:test-pass'))
             && ($data['action'] ?? null) === 'pay'
             && ($data['currency'] ?? null) === 'RWF'
             && ($data['retailerid'] ?? null) === 'RID123'
@@ -44,7 +44,7 @@ it('sends a pay request with required headers and defaults', function () {
     });
 });
 
-it('sends a checkstatus request', function () {
+it('sends a checkstatus request', function (): void {
     Http::fake([
         'https://pay.esicia.com/*' => Http::response([
             'tid' => 'A441489693051',

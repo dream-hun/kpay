@@ -14,7 +14,7 @@ class KPayCallbackController
     {
         $payload = $request->all();
 
-        $statusId = (string)($payload['statusid'] ?? '');
+        $statusId = (string) ($payload['statusid'] ?? '');
 
         if ($statusId === '01') {
             event(new PaymentSucceeded($payload));
@@ -24,10 +24,9 @@ class KPayCallbackController
             event(new PaymentPending($payload));
         }
 
-        // K-Pay requires an acknowledgement response even if you process asynchronously.
         return response()->json([
-            'tid' => (string)($payload['tid'] ?? ''),
-            'refid' => (string)($payload['refid'] ?? ''),
+            'tid' => (string) ($payload['tid'] ?? ''),
+            'refid' => (string) ($payload['refid'] ?? ''),
             'reply' => 'OK',
         ]);
     }

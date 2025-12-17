@@ -4,7 +4,7 @@ use Illuminate\Support\Facades\Event;
 use KPay\LaravelKPay\Events\PaymentFailed;
 use KPay\LaravelKPay\Events\PaymentSucceeded;
 
-it('callback acknowledges with required response shape', function () {
+it('callback acknowledges with required response shape', function (): void {
     $response = $this->postJson('/kpay/callback', [
         'tid' => 'A441489693051',
         'refid' => 'ORDER123456789',
@@ -20,7 +20,7 @@ it('callback acknowledges with required response shape', function () {
     ]);
 });
 
-it('callback dispatches success event', function () {
+it('callback dispatches success event', function (): void {
     Event::fake([PaymentSucceeded::class]);
 
     $this->postJson('/kpay/callback', [
@@ -35,7 +35,7 @@ it('callback dispatches success event', function () {
     });
 });
 
-it('callback dispatches failed event', function () {
+it('callback dispatches failed event', function (): void {
     Event::fake([PaymentFailed::class]);
 
     $this->postJson('/kpay/callback', [
