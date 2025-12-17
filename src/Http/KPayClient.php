@@ -51,6 +51,26 @@ readonly class KPayClient
     }
 
     /**
+     * Check payment status (action=checkstatus) by refid.
+     *
+     * @throws InvalidArgumentException
+     * @throws RequestException|ConnectionException
+     */
+    public function checkStatus(string $refid): array
+    {
+        $this->assertConfigured();
+
+        if (trim($refid) === '') {
+            throw new InvalidArgumentException('K-Pay refid is required.');
+        }
+
+        return $this->request([
+            'action' => 'checkstatus',
+            'refid' => $refid,
+        ]);
+    }
+
+    /**
      * @throws RequestException|ConnectionException
      */
     private function request(array $payload): array
