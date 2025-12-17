@@ -5,6 +5,7 @@ Thanks for contributing!
 ## Commit message convention (Conventional Commits)
 
 We use **Conventional Commits** so changes are easy to read and can be used for changelogs/releases.
+This repository enforces the convention in CI: **PR titles and commit messages must follow this format** (merge commits are ignored).
 
 ### Format
 
