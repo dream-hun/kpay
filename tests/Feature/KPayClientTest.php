@@ -13,7 +13,7 @@ it('sends a pay request with required headers and defaults', function (): void {
             'tid' => 'T123',
             'refid' => 'ORDER123',
             'retcode' => 0,
-        ], 200),
+        ]),
     ]);
 
     $response = KPay::pay([

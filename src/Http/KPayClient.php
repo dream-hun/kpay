@@ -4,6 +4,7 @@ namespace KPay\LaravelKPay\Http;
 
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Factory as HttpFactory;
+use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Client\RequestException;
 use InvalidArgumentException;
 
@@ -50,27 +51,6 @@ readonly class KPayClient
     }
 
     /**
-     * Check payment status (action check status) by refid.
-     *
-     * @throws InvalidArgumentException
-     * @throws RequestException
-     * @throws ConnectionException
-     */
-    public function checkStatus(string $refid): array
-    {
-        $this->assertConfigured();
-
-        if (trim($refid) === '') {
-            throw new InvalidArgumentException('K-Pay refid is required.');
-        }
-
-        return $this->request([
-            'action' => 'checkstatus',
-            'refid' => $refid,
-        ]);
-    }
-
-    /**
      * @throws RequestException|ConnectionException
      */
     private function request(array $payload): array
@@ -81,9 +61,10 @@ readonly class KPayClient
         return $response->json() ?? [];
     }
 
-    private function client(): HttpFactory
+    private function client(): PendingRequest
     {
         return $this->http
+            ->createPendingRequest()
             ->baseUrl($this->baseUrl())
             ->acceptJson()
             ->asJson()
