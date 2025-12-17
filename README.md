@@ -96,6 +96,10 @@ KPAY_CALLBACK_ENABLED=true
 composer test
 ```
 
+## Contributing
+
+Please follow our commit message convention (Conventional Commits). See `CONTRIBUTING.md`.
+
 ## License
 
 MIT
