@@ -40,20 +40,29 @@ KPAY_CURRENCY=RWF
 
 ```php
 use KPay;
+use KPay\LaravelKPay\Enums\PaymentMethod;
 
 $result = KPay::pay([
-    'msisdn' => '250783300000',
-    'email' => 'customer@example.com',
+    'msisdn'  => '250783300000',
+    'email'   => 'customer@example.com',
     'details' => 'Order #12345',
-    'refid' => 'ORDER123456789',
-    'amount' => 5000,
-    'cname' => 'John Doe',
+    'refid'   => 'ORDER123456789',
+    'amount'  => 5000,
+    'cname'   => 'John Doe',
     'cnumber' => 'CUST001',
-    'pmethod' => 'momo', // momo, cc, spenn
+    'pmethod' => PaymentMethod::Momo, // or 'momo', 'cc', 'spenn'
 ]);
 
 // If success == 1, redirect user to $result['url']
 ```
+
+### Payment method amount limits (RWF)
+
+| Method | `pmethod` | Minimum | Maximum |
+|--------|-----------|--------:|--------:|
+| Mobile Money (MTN / Airtel) | `momo` | 100 | 5,000,000 |
+| Credit / Debit Card | `cc` | 1,000 | 10,000,000 |
+| SPENN wallet | `spenn` | 100 | 1,000,000 |
 
 ### Check payment status
 
@@ -61,7 +70,7 @@ $result = KPay::pay([
 use KPay;
 
 $status = KPay::checkStatus('ORDER123456789');
-// statusid: 01 (success), 02 (failed), 03 (pending)
+// statusid: '01' (success), '02' (failed), '03' (pending)
 ```
 
 ### Webhook (Callback)
@@ -70,17 +79,36 @@ By default the package registers:
 
 - `POST /kpay/callback`
 
-K-Pay requires your endpoint to respond:
+K-Pay sends a POST to your callback URL and requires the endpoint to respond:
 
 ```json
 { "tid": "...", "refid": "...", "reply": "OK" }
 ```
 
-The controller also dispatches events based on `statusid`:
+The controller dispatches events based on `statusid`. K-Pay callbacks only send `01` (success) or `02` (failed); `03` (pending) is only returned by `checkStatus`.
 
-- `KPay\LaravelKPay\Events\PaymentSucceeded`
-- `KPay\LaravelKPay\Events\PaymentFailed`
-- `KPay\LaravelKPay\Events\PaymentPending`
+| `statusid` | Event dispatched |
+|------------|-----------------|
+| `01` | `KPay\LaravelKPay\Events\PaymentSucceeded` |
+| `02` | `KPay\LaravelKPay\Events\PaymentFailed` |
+| `03` | `KPay\LaravelKPay\Events\PaymentPending` |
+
+Each event exposes typed properties alongside the raw `$payload` array:
+
+```php
+use KPay\LaravelKPay\Events\PaymentSucceeded;
+
+// In your listener:
+public function handle(PaymentSucceeded $event): void
+{
+    $event->tid;        // K-Pay transaction ID
+    $event->refid;      // your merchant reference
+    $event->statusid;   // '01'
+    $event->statusdesc; // human-readable status
+    $event->payaccount; // mobile/card account used
+    $event->payload;    // full raw payload array
+}
+```
 
 To customize the path or middleware:
 
@@ -89,6 +117,58 @@ KPAY_CALLBACK_PATH=kpay/callback
 KPAY_CALLBACK_MIDDLEWARE=api
 KPAY_CALLBACK_ENABLED=true
 ```
+
+## Enums
+
+```php
+use KPay\LaravelKPay\Enums\PaymentMethod;
+use KPay\LaravelKPay\Enums\PaymentStatus;
+
+PaymentMethod::Momo->value;   // 'momo'
+PaymentMethod::Card->value;   // 'cc'
+PaymentMethod::Spenn->value;  // 'spenn'
+
+PaymentStatus::Succeeded->value; // '01'
+PaymentStatus::Failed->value;    // '02'
+PaymentStatus::Pending->value;   // '03'
+```
+
+## Error handling
+
+The package throws typed exceptions you can catch:
+
+```php
+use KPay\LaravelKPay\Exceptions\KPayApiException;
+use KPay\LaravelKPay\Exceptions\KPayException;
+
+try {
+    $result = KPay::pay([...]);
+} catch (KPayApiException $e) {
+    // API-level error returned by K-Pay
+    $e->retcode; // e.g. 604
+    $e->reply;   // e.g. 'DUPLICATE_REFID'
+} catch (\InvalidArgumentException $e) {
+    // Validation failure (missing field, invalid pmethod, amount out of range)
+} catch (KPayException $e) {
+    // Any other package exception
+}
+```
+
+### K-Pay API error codes
+
+| `retcode` | `reply` | Description |
+|-----------|---------|-------------|
+| 0 | PENDING | Payment initiated successfully |
+| 600 | INVALID_REQUEST | Missing or invalid parameters |
+| 601 | INVALID_API_KEY | API key inactive or not found |
+| 602 | INVALID_AUTH | Authentication credentials invalid |
+| 603 | IP_NOT_WHITELISTED | Unauthorized IP address |
+| 604 | DUPLICATE_REFID | Reference ID already processed |
+| 605 | AMOUNT_OUT_OF_RANGE | Amount outside allowed limits |
+| 606 | TARGET_AUTHORIZATION_ERROR | Provider rejected transaction |
+| 607 | INSUFFICIENT_FUNDS | Insufficient customer balance |
+| 608 | TIMEOUT | Transaction timed out |
+| 609 | CANCELLED | Customer cancelled |
 
 ## Testing
 

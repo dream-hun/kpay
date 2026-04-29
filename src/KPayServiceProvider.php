@@ -12,12 +12,10 @@ class KPayServiceProvider extends ServiceProvider
     {
         $this->mergeConfigFrom(__DIR__.'/../config/kpay.php', 'kpay');
 
-        $this->app->singleton(KPayClient::class, function ($app) {
-            return new KPayClient(
-                $app->make(HttpFactory::class),
-                $app['config']->get('kpay', [])
-            );
-        });
+        $this->app->singleton(KPayClient::class, fn ($app) => new KPayClient(
+            $app->make(HttpFactory::class),
+            $app['config']->get('kpay', [])
+        ));
 
         $this->app->alias(KPayClient::class, 'kpay');
     }

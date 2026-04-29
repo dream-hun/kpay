@@ -7,6 +7,8 @@ use Illuminate\Http\Client\Factory as HttpFactory;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Client\RequestException;
 use InvalidArgumentException;
+use KPay\LaravelKPay\Enums\PaymentMethod;
+use KPay\LaravelKPay\Exceptions\KPayApiException;
 
 readonly class KPayClient
 {
@@ -24,10 +26,15 @@ readonly class KPayClient
      * retailerid, returl, redirecturl
      *
      * @throws InvalidArgumentException
+     * @throws KPayApiException
      * @throws RequestException|ConnectionException
      */
     public function pay(array $payload): array
     {
+        if (isset($payload['pmethod']) && $payload['pmethod'] instanceof PaymentMethod) {
+            $payload['pmethod'] = $payload['pmethod']->value;
+        }
+
         $payload = array_merge(
             [
                 'action' => 'pay',
@@ -44,6 +51,8 @@ readonly class KPayClient
 
         $this->assertConfigured();
         $this->assertRequired($payload);
+        $this->assertPaymentMethod($payload['pmethod']);
+        $this->assertAmountRange((int) $payload['amount'], $payload['pmethod']);
 
         $payload = array_filter($payload, static fn ($v) => $v !== null);
 
@@ -54,6 +63,7 @@ readonly class KPayClient
      * Check payment status (action=checkstatus) by refid.
      *
      * @throws InvalidArgumentException
+     * @throws KPayApiException
      * @throws RequestException|ConnectionException
      */
     public function checkStatus(string $refid): array
@@ -71,6 +81,7 @@ readonly class KPayClient
     }
 
     /**
+     * @throws KPayApiException
      * @throws RequestException|ConnectionException
      */
     private function request(array $payload): array
@@ -78,7 +89,14 @@ readonly class KPayClient
         $response = $this->client()->post('/', $payload);
         $response->throw();
 
-        return $response->json() ?? [];
+        $data = $response->json() ?? [];
+
+        $retcode = $data['retcode'] ?? null;
+        if ($retcode !== null && (int) $retcode !== 0) {
+            throw KPayApiException::fromResponse($data);
+        }
+
+        return $data;
     }
 
     private function client(): PendingRequest
@@ -151,6 +169,47 @@ readonly class KPayClient
             if (! array_key_exists($key, $payload) || $payload[$key] === '' || $payload[$key] === null) {
                 throw new InvalidArgumentException("K-Pay payload missing required field: $key");
             }
+        }
+    }
+
+    /**
+     * @throws InvalidArgumentException
+     */
+    private function assertPaymentMethod(string $pmethod): void
+    {
+        if (PaymentMethod::tryFrom($pmethod) === null) {
+            $accepted = implode(', ', array_column(PaymentMethod::cases(), 'value'));
+            throw new InvalidArgumentException(
+                "K-Pay pmethod '{$pmethod}' is invalid. Accepted values: {$accepted}."
+            );
+        }
+    }
+
+    /**
+     * Amount limits per payment method (RWF):
+     *   momo:  100 – 5,000,000
+     *   cc:    1,000 – 10,000,000
+     *   spenn: 100 – 1,000,000
+     *
+     * @throws InvalidArgumentException
+     */
+    private function assertAmountRange(int $amount, string $pmethod): void
+    {
+        [$min, $max] = match ($pmethod) {
+            PaymentMethod::Momo->value  => [100, 5_000_000],
+            PaymentMethod::Card->value  => [1_000, 10_000_000],
+            PaymentMethod::Spenn->value => [100, 1_000_000],
+            default                     => [null, null],
+        };
+
+        if ($min === null) {
+            return;
+        }
+
+        if ($amount < $min || $amount > $max) {
+            throw new InvalidArgumentException(
+                "K-Pay amount {$amount} is out of range for pmethod '{$pmethod}' (min: {$min}, max: {$max} RWF)."
+            );
         }
     }
 }
