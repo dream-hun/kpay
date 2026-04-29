@@ -2,4 +2,5 @@
 /.phpunit.cache
 /.idea
 /.vscode
+CLAUDE.md
 composer.lock
